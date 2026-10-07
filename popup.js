@@ -30,7 +30,17 @@ function render() {
     : "Desativado neste site";
   if (config.lastRun) {
     const when = new Date(config.lastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    $("#status").textContent = config.lastStatus === "ok" ? `Último sinal enviado às ${when}` : `Última tentativa às ${when}: ${config.lastStatus}`;
+    const labels = {
+      "request-accepted": "pedido aceite pelo servidor",
+      "activity-sent": "atividade emitida",
+      "authentication-required": "sessão expirada",
+      "http-error": "erro HTTP",
+      "no-tab": "separador não encontrado",
+      "tab-discarded": "separador descartado",
+      "execution-error": "erro de execução",
+      "ok": "pedido aceite"
+    };
+    $("#status").textContent = `Última tentativa às ${when}: ${labels[config.lastStatus] || config.lastStatus}`;
   }
 }
 
@@ -76,7 +86,9 @@ async function init() {
     $("#status").textContent = "A enviar sinal…";
     const result = await chrome.runtime.sendMessage({ type: "run", origin });
     $("#status").className = `status ${result.ok ? "ok" : "error"}`;
-    $("#status").textContent = result.ok ? "Sinal enviado com sucesso." : `Não foi possível enviar: ${result.reason || result.status || "erro"}`;
+    $("#status").textContent = result.ok
+      ? (result.message || "Pedido aceite pelo servidor; renovação não confirmada.")
+      : (result.message || `Não foi possível enviar: ${result.status || "erro"}`);
     button.disabled = false;
   });
   $("#options").addEventListener("click", () => chrome.runtime.openOptionsPage());

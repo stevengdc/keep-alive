@@ -3,8 +3,13 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="options.css"><title>Keep Alive — Sites</title></head>
 <body>
   <main>
-    <header><div><span>KEEP ALIVE</span><h1>Sites configurados</h1><p>Controle todas as sessões num só lugar.</p></div><button id="removeAll">Remover inativos</button></header>
+    <header><div><span>KEEP ALIVE</span><h1>Sites configurados</h1><p>Controle todas as sessões num só lugar.</p></div><div class="actions"><button id="exportLogs">Exportar log</button><button id="clearLogs">Limpar log</button><button id="removeAll">Remover inativos</button></div></header>
     <section id="sites"></section>
+    <section class="log-panel">
+      <div class="log-heading"><div><span>DIAGNÓSTICO</span><h2>Histórico de atividade</h2></div><small>Últimas 100 tentativas por site</small></div>
+      <div id="logs"></div>
+      <div id="noLogs" class="no-logs">Ainda não existem registos.</div>
+    </section>
     <div id="empty" hidden><div>◌</div><h2>Nenhum site configurado</h2><p>Abra um website e use o ícone da extensão para o adicionar.</p></div>
     <footer>Os dados e cookies nunca saem do seu navegador.</footer>
   </main>

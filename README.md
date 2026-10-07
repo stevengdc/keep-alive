@@ -9,6 +9,9 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 - Pedido `GET` autenticado à página atual ou a um endpoint definido pelo utilizador.
 - Modo alternativo de atividade suave para aplicações que renovam a sessão por eventos.
 - Teste imediato e estado da última tentativa.
+- Histórico das últimas 100 tentativas por site, com estado HTTP e diagnóstico.
+- Deteção de respostas `401`/`403`, redirecionamentos e páginas de login devolvidas com HTTP `200`.
+- Exportação do histórico em JSON.
 - Página de gestão de todos os sites.
 - Permissões de acesso pedidas apenas para os domínios ativados.
 

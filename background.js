@@ -1,4 +1,5 @@
 const ALARM_PREFIX = "keep-alive:";
+const LOG_LIMIT = 100;
 const DEFAULTS = {
   enabled: true,
   interval: 5,
@@ -19,8 +20,47 @@ const storage = {
   },
   async setSites(sites) {
     await chrome.storage.local.set({ sites });
+  },
+  async appendLog(origin, entry) {
+    const { logs = {} } = await chrome.storage.local.get("logs");
+    logs[origin] = [entry, ...(logs[origin] || [])].slice(0, LOG_LIMIT);
+    await chrome.storage.local.set({ logs });
   }
 };
+
+function safeUrl(value) {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
+async function recordResult(origin, site, data) {
+  const timestamp = Date.now();
+  site.lastRun = timestamp;
+  site.lastStatus = data.outcome;
+  site.failures = data.ok ? 0 : (site.failures || 0) + 1;
+  const sites = await storage.getSites();
+  sites[origin] = site;
+  await storage.setSites(sites);
+  await storage.appendLog(origin, {
+    timestamp,
+    source: data.source,
+    method: site.method,
+    outcome: data.outcome,
+    ok: data.ok,
+    status: data.status ?? null,
+    requestedUrl: safeUrl(data.requestedUrl),
+    finalUrl: safeUrl(data.finalUrl),
+    redirected: Boolean(data.redirected),
+    tabFrozen: Boolean(data.tabFrozen),
+    tabDiscarded: Boolean(data.tabDiscarded),
+    message: data.message || ""
+  });
+  return data;
+}
 
 function alarmName(origin) {
   return `${ALARM_PREFIX}${encodeURIComponent(origin)}`;
@@ -59,14 +99,12 @@ async function runKeepAlive(origin, manual = false) {
 
   const tab = await findMatchingTab(origin);
   if (!tab?.id) {
-    if (site.onlyWhenTabOpen !== false) {
-      site.lastStatus = "no-tab";
-      site.lastRun = Date.now();
-      sites[origin] = site;
-      await storage.setSites(sites);
-      return { ok: false, reason: "no-tab" };
-    }
-    return { ok: false, reason: "no-tab" };
+    return recordResult(origin, site, {
+      ok: false,
+      outcome: "no-tab",
+      source: manual ? "manual" : "scheduled",
+      message: "Não foi encontrado um separador aberto deste site."
+    });
   }
 
   try {
@@ -81,7 +119,13 @@ async function runKeepAlive(origin, manual = false) {
             clientX: Math.max(1, Math.round(innerWidth / 2)),
             clientY: Math.max(1, Math.round(innerHeight / 2))
           }));
-          return { ok: true, status: "activity" };
+          return {
+            ok: true,
+            outcome: "activity-sent",
+            requestedUrl: location.href,
+            finalUrl: location.href,
+            message: "Eventos de atividade emitidos; a renovação da sessão não pode ser confirmada."
+          };
         }
 
         const target = config.endpoint || location.href;
@@ -95,24 +139,54 @@ async function runKeepAlive(origin, manual = false) {
           cache: "no-store",
           redirect: "follow"
         });
-        return { ok: response.ok, status: response.status };
+
+        const contentType = response.headers.get("content-type") || "";
+        let looksLikeLogin = false;
+        if (contentType.includes("text/html")) {
+          try {
+            const sample = (await response.clone().text()).slice(0, 65536).toLowerCase();
+            looksLikeLogin = /erro\s*401|authorization required|autorização requerida|efetue login|faça login|type=["']password["']/.test(sample);
+          } catch {
+            // A resposta pode não permitir leitura; o estado HTTP continua a ser registado.
+          }
+        }
+        const finalUrl = new URL(response.url);
+        const redirectedToLogin = response.redirected && /(?:login|signin|sign-in|auth|sso)/i.test(finalUrl.pathname);
+        const authenticationRequired = response.status === 401 || response.status === 403 || looksLikeLogin || redirectedToLogin;
+        const ok = response.ok && !authenticationRequired;
+        return {
+          ok,
+          outcome: authenticationRequired ? "authentication-required" : (response.ok ? "request-accepted" : "http-error"),
+          status: response.status,
+          requestedUrl: targetUrl.href,
+          finalUrl: response.url,
+          redirected: response.redirected,
+          message: authenticationRequired
+            ? "A resposta parece ser uma página de autenticação; a sessão já não estava válida."
+            : (response.ok
+              ? "O servidor aceitou o pedido, mas só o próprio site pode confirmar se a sessão foi renovada."
+              : `O servidor respondeu com HTTP ${response.status}.`)
+        };
       },
       args: [site]
     });
 
-    site.lastRun = Date.now();
-    site.lastStatus = result?.ok ? "ok" : `http-${result?.status || "error"}`;
-    site.failures = result?.ok ? 0 : (site.failures || 0) + 1;
-    sites[origin] = site;
-    await storage.setSites(sites);
-    return { ok: Boolean(result?.ok), status: result?.status };
+    return recordResult(origin, site, {
+      ...result,
+      ok: Boolean(result?.ok),
+      source: manual ? "manual" : "scheduled",
+      tabFrozen: Boolean(tab.frozen),
+      tabDiscarded: Boolean(tab.discarded)
+    });
   } catch (error) {
-    site.lastRun = Date.now();
-    site.lastStatus = "error";
-    site.failures = (site.failures || 0) + 1;
-    sites[origin] = site;
-    await storage.setSites(sites);
-    return { ok: false, reason: error.message };
+    return recordResult(origin, site, {
+      ok: false,
+      outcome: tab.discarded ? "tab-discarded" : "execution-error",
+      source: manual ? "manual" : "scheduled",
+      tabFrozen: Boolean(tab.frozen),
+      tabDiscarded: Boolean(tab.discarded),
+      message: error.message
+    });
   }
 }
 
