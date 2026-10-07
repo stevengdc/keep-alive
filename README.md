@@ -1,0 +1,35 @@
+# Keep Alive
+
+Extensão para Chromium que evita que sessões web expirem por inatividade. Cada site é ativado individualmente e os dados permanecem no navegador.
+
+## Funcionalidades
+
+- Ativação independente por domínio.
+- Intervalos entre 30 segundos e 30 minutos.
+- Pedido `GET` autenticado à página atual ou a um endpoint definido pelo utilizador.
+- Modo alternativo de atividade suave para aplicações que renovam a sessão por eventos.
+- Teste imediato e estado da última tentativa.
+- Página de gestão de todos os sites.
+- Permissões de acesso pedidas apenas para os domínios ativados.
+
+## Instalar localmente
+
+1. Abra `chrome://extensions` (Chrome) ou `edge://extensions` (Edge).
+2. Ative o **Modo de programador**.
+3. Clique em **Carregar sem compactação**.
+4. Escolha esta pasta.
+5. Abra o site pretendido, clique em **Keep Alive** e ative-o.
+
+## Como funciona
+
+O service worker agenda um alarme para cada site ativo. Quando chega a hora, a extensão procura um separador aberto desse domínio e executa nele o método escolhido. No modo normal, faz um pedido com os cookies da sessão. No modo de atividade, emite eventos não intrusivos sem mover o cursor real.
+
+> O Keep Alive não guarda credenciais, não lê o conteúdo das respostas e não envia dados para serviços externos. Um website pode aplicar políticas que impeçam este tipo de renovação; use a extensão apenas onde estiver autorizado.
+
+## Desenvolvimento
+
+Não há processo de build nem dependências. Depois de alterar os ficheiros, clique em **Recarregar** na página de extensões.
+
+## Licença
+
+[GPL-3.0](LICENSE)

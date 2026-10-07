@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+  <title>Keep Alive</title>
+</head>
+<body>
+  <header>
+    <div class="mark" aria-hidden="true"><span></span></div>
+    <div><h1>Keep Alive</h1><p id="host">A verificar página…</p></div>
+  </header>
+
+  <main id="app" hidden>
+    <section class="hero">
+      <div>
+        <strong>Manter sessão ativa</strong>
+        <small id="summary">Desativado neste site</small>
+      </div>
+      <label class="switch"><input id="enabled" type="checkbox"><span></span></label>
+    </section>
+
+    <section class="settings">
+      <label>Intervalo
+        <select id="interval">
+          <option value="0.5">30 segundos</option>
+          <option value="1">1 minuto</option>
+          <option value="2">2 minutos</option>
+          <option value="5">5 minutos</option>
+          <option value="10">10 minutos</option>
+          <option value="15">15 minutos</option>
+          <option value="30">30 minutos</option>
+        </select>
+      </label>
+      <label>Método
+        <select id="method">
+          <option value="fetch">Pedido autenticado</option>
+          <option value="activity">Simular atividade suave</option>
+        </select>
+      </label>
+      <label id="endpointRow">URL de verificação <em>opcional</em>
+        <input id="endpoint" type="url" placeholder="Usar a página atual">
+      </label>
+    </section>
+
+    <div id="status" class="status" role="status"></div>
+    <button id="test" class="primary">Testar agora</button>
+    <button id="options" class="link">Gerir todos os sites</button>
+  </main>
+  <div id="unsupported" class="unsupported" hidden>Abra uma página <b>http</b> ou <b>https</b> para configurar o Keep Alive.</div>
+  <script src="popup.js"></script>
+</body>
+</html>
