@@ -75,6 +75,15 @@ async function init() {
   $("#app").hidden = false;
   const { sites = {} } = await chrome.storage.local.get("sites");
   config = { ...defaults, ...sites[origin] };
+  const isEdge = /Edg\//.test(navigator.userAgent);
+  $("#browserName").textContent = isEdge ? "Edge" : "Chrome";
+  $("#performanceSettings").addEventListener("click", () => {
+    chrome.tabs.create({
+      url: isEdge
+        ? "edge://settings/system/managePerformance"
+        : "chrome://settings/performance"
+    });
+  });
   render();
 
   $("#enabled").addEventListener("change", toggleEnabled);
