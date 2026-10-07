@@ -12,6 +12,7 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 - Histórico das últimas 100 tentativas por site, com estado HTTP e diagnóstico.
 - Deteção de respostas `401`/`403`, redirecionamentos e páginas de login devolvidas com HTTP `200`.
 - Exportação do histórico em JSON.
+- Integração específica com o cliente GraphQL/Apollo do Global Trusted Sign, sem guardar tokens.
 - Página de gestão de todos os sites.
 - Permissões de acesso pedidas apenas para os domínios ativados.
 

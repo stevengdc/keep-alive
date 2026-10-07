@@ -128,6 +128,99 @@ async function runKeepAlive(origin, manual = false) {
           };
         }
 
+        // Global Trusted Sign mantém o relógio da sessão no estado do cliente
+        // Apollo. Um fetch ao HTML não passa por esse cliente e não conta como
+        // atividade. Localizamos o contexto React já autenticado e fazemos a
+        // query oficial de verificação sem ler, copiar ou guardar tokens.
+        if (location.hostname === "support.globaltrustedsign.com") {
+          if (/^\/login(?:\/|$)/i.test(location.pathname)) {
+            return {
+              ok: false,
+              outcome: "authentication-required",
+              status: 401,
+              requestedUrl: location.href,
+              finalUrl: location.href,
+              message: "A aplicação já se encontra na página de autenticação."
+            };
+          }
+
+          const rootElement = document.querySelector("#root") || document.documentElement;
+          const reactKey = Object.keys(rootElement).find((key) =>
+            key.startsWith("__reactContainer$") || key.startsWith("__reactFiber$")
+          );
+          const rootFiber = reactKey ? rootElement[reactKey] : null;
+          const stack = rootFiber ? [rootFiber] : [];
+          const visited = new Set();
+          let appContext = null;
+
+          while (stack.length && visited.size < 25000) {
+            const fiber = stack.pop();
+            if (!fiber || visited.has(fiber)) continue;
+            visited.add(fiber);
+            const candidates = [fiber.memoizedProps?.value, fiber.pendingProps?.value];
+            appContext = candidates.find((value) =>
+              value?.api?.client && typeof value.api.client.query === "function" &&
+              value?.state?.session && typeof value?.methods?.isLoggedIn === "function"
+            ) || null;
+            if (appContext) break;
+            if (fiber.child) stack.push(fiber.child);
+            if (fiber.sibling) stack.push(fiber.sibling);
+          }
+
+          if (!appContext?.methods?.isLoggedIn()) {
+            return {
+              ok: false,
+              outcome: "app-client-unavailable",
+              requestedUrl: location.href,
+              finalUrl: location.href,
+              message: "Não foi possível encontrar uma sessão autenticada no cliente da aplicação."
+            };
+          }
+
+          const nameField = {
+            kind: "Field",
+            name: { kind: "Name", value: "name" },
+            arguments: [],
+            directives: []
+          };
+          const userField = {
+            kind: "Field",
+            name: { kind: "Name", value: "user" },
+            arguments: [],
+            directives: [],
+            selectionSet: { kind: "SelectionSet", selections: [nameField] }
+          };
+          const checkAuthenticationQuery = {
+            kind: "Document",
+            definitions: [{
+              kind: "OperationDefinition",
+              operation: "query",
+              name: { kind: "Name", value: "checkAuthentication" },
+              variableDefinitions: [],
+              directives: [],
+              selectionSet: { kind: "SelectionSet", selections: [userField] }
+            }]
+          };
+
+          const response = await appContext.api.client.query({
+            query: checkAuthenticationQuery,
+            fetchPolicy: "no-cache",
+            context: { noLoading: true }
+          });
+          const verified = Boolean(response?.data?.user?.name) && !response?.errors?.length;
+          return {
+            ok: verified,
+            outcome: verified ? "session-verified" : "authentication-required",
+            status: verified ? 200 : 401,
+            requestedUrl: "https://api.globaltrustedsign.com/graphql",
+            finalUrl: location.href,
+            redirected: false,
+            message: verified
+              ? "Sessão confirmada pelo cliente autenticado da aplicação."
+              : "A API não confirmou a sessão do utilizador."
+          };
+        }
+
         const target = config.endpoint || location.href;
         const targetUrl = new URL(target, location.href);
         if (targetUrl.origin !== location.origin) {
@@ -151,8 +244,8 @@ async function runKeepAlive(origin, manual = false) {
           }
         }
         const finalUrl = new URL(response.url);
-        const redirectedToLogin = response.redirected && /(?:login|signin|sign-in|auth|sso)/i.test(finalUrl.pathname);
-        const authenticationRequired = response.status === 401 || response.status === 403 || looksLikeLogin || redirectedToLogin;
+        const isLoginUrl = /(?:login|signin|sign-in|auth|sso)/i.test(finalUrl.pathname);
+        const authenticationRequired = response.status === 401 || response.status === 403 || looksLikeLogin || isLoginUrl;
         const ok = response.ok && !authenticationRequired;
         return {
           ok,

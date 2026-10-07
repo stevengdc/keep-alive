@@ -32,12 +32,14 @@ function render() {
     const when = new Date(config.lastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const labels = {
       "request-accepted": "pedido aceite pelo servidor",
+      "session-verified": "sessão confirmada pela aplicação",
       "activity-sent": "atividade emitida",
       "authentication-required": "sessão expirada",
       "http-error": "erro HTTP",
       "no-tab": "separador não encontrado",
       "tab-discarded": "separador descartado",
       "execution-error": "erro de execução",
+      "app-client-unavailable": "cliente da aplicação indisponível",
       "ok": "pedido aceite"
     };
     $("#status").textContent = `Última tentativa às ${when}: ${labels[config.lastStatus] || config.lastStatus}`;

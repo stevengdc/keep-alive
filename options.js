@@ -13,12 +13,14 @@ async function getLogs() {
 
 const outcomeLabels = {
   "request-accepted": "Pedido aceite",
+  "session-verified": "Sessão confirmada",
   "activity-sent": "Atividade emitida",
   "authentication-required": "Sessão expirada",
   "http-error": "Erro HTTP",
   "no-tab": "Sem separador",
   "tab-discarded": "Separador descartado",
-  "execution-error": "Erro de execução"
+  "execution-error": "Erro de execução",
+  "app-client-unavailable": "Cliente indisponível"
 };
 
 function intervalLabel(value) {
