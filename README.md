@@ -5,7 +5,7 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 ## Funcionalidades
 
 - Ativação independente por domínio.
-- Intervalos entre 30 segundos e 30 minutos.
+- Intervalos fixos, aleatórios predefinidos e intervalos mínimo/máximo personalizados.
 - Pedido `GET` autenticado à página atual ou a um endpoint definido pelo utilizador.
 - Modo alternativo de atividade suave para aplicações que renovam a sessão por eventos.
 - Teste imediato e estado da última tentativa.

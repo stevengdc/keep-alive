@@ -27,6 +27,12 @@ function intervalLabel(value) {
   return value < 1 ? "30 seg" : `${value} min`;
 }
 
+function siteIntervalLabel(site) {
+  return site.intervalMode === "random" || site.intervalMode === "custom"
+    ? `${site.intervalMin}–${site.intervalMax} min aleatório`
+    : intervalLabel(site.interval);
+}
+
 async function render() {
   const sites = await getSites();
   const logs = await getLogs();
@@ -39,7 +45,7 @@ async function render() {
     const title = document.createElement("h2");
     title.textContent = new URL(origin).hostname;
     const detail = document.createElement("small");
-    detail.textContent = `${site.method === "activity" ? "Atividade suave" : "Pedido autenticado"} · ${intervalLabel(site.interval)}`;
+    detail.textContent = `${site.method === "activity" ? "Atividade suave" : "Pedido autenticado"} · ${siteIntervalLabel(site)}`;
     info.append(title, detail);
     const status = document.createElement("span");
     status.className = `pill ${site.enabled ? "on" : ""}`;

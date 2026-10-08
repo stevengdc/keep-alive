@@ -24,15 +24,27 @@
     <section class="settings">
       <label>Intervalo
         <select id="interval">
-          <option value="0.5">30 segundos</option>
-          <option value="1">1 minuto</option>
-          <option value="2">2 minutos</option>
-          <option value="5">5 minutos</option>
-          <option value="10">10 minutos</option>
-          <option value="15">15 minutos</option>
-          <option value="30">30 minutos</option>
+          <optgroup label="Fixo">
+            <option value="fixed:0.5">30 segundos</option>
+            <option value="fixed:1">1 minuto</option>
+            <option value="fixed:2">2 minutos</option>
+            <option value="fixed:5">5 minutos</option>
+            <option value="fixed:10">10 minutos</option>
+            <option value="fixed:15">15 minutos</option>
+            <option value="fixed:30">30 minutos</option>
+          </optgroup>
+          <optgroup label="Aleatório">
+            <option value="random:5:10">Entre 5 e 10 minutos</option>
+            <option value="random:10:15">Entre 10 e 15 minutos</option>
+            <option value="random:15:20">Entre 15 e 20 minutos</option>
+            <option value="custom">Intervalo personalizado…</option>
+          </optgroup>
         </select>
       </label>
+      <div id="customInterval" class="custom-interval" hidden>
+        <label>Mínimo (min)<input id="intervalMin" type="number" min="0.5" max="1440" step="0.5"></label>
+        <label>Máximo (min)<input id="intervalMax" type="number" min="0.5" max="1440" step="0.5"></label>
+      </div>
       <label>Método
         <select id="method">
           <option value="fetch">Pedido autenticado</option>

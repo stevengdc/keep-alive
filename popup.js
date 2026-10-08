@@ -5,6 +5,9 @@ let config;
 const defaults = {
   enabled: false,
   interval: 5,
+  intervalMode: "fixed",
+  intervalMin: 5,
+  intervalMax: 10,
   method: "fetch",
   endpoint: "",
   onlyWhenTabOpen: true,
@@ -21,12 +24,25 @@ async function save() {
 
 function render() {
   $("#enabled").checked = config.enabled;
-  $("#interval").value = String(config.interval);
+  const intervalValue = config.intervalMode === "custom"
+    ? "custom"
+    : config.intervalMode === "random"
+      ? `random:${config.intervalMin}:${config.intervalMax}`
+      : `fixed:${config.interval}`;
+  $("#interval").value = [...$("#interval").options].some((option) => option.value === intervalValue)
+    ? intervalValue
+    : "custom";
+  $("#intervalMin").value = config.intervalMin;
+  $("#intervalMax").value = config.intervalMax;
+  $("#customInterval").hidden = config.intervalMode !== "custom";
   $("#method").value = config.method;
   $("#endpoint").value = config.endpoint || "";
   $("#endpointRow").hidden = config.method !== "fetch";
+  const intervalLabel = config.intervalMode === "fixed"
+    ? (config.interval < 1 ? "30 segundos" : `${config.interval} min`)
+    : `${config.intervalMin}–${config.intervalMax} min aleatório`;
   $("#summary").textContent = config.enabled
-    ? `Ativo · a cada ${config.interval < 1 ? "30 segundos" : `${config.interval} min`}`
+    ? `Ativo · ${intervalLabel}`
     : "Desativado neste site";
   if (config.lastRun) {
     const when = new Date(config.lastRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -87,7 +103,25 @@ async function init() {
   render();
 
   $("#enabled").addEventListener("change", toggleEnabled);
-  $("#interval").addEventListener("change", async (event) => { config.interval = Number(event.target.value); await save(); render(); });
+  $("#interval").addEventListener("change", async (event) => {
+    const [mode, first, second] = event.target.value.split(":");
+    config.intervalMode = mode;
+    if (mode === "fixed") config.interval = Number(first);
+    if (mode === "random") {
+      config.intervalMin = Number(first);
+      config.intervalMax = Number(second);
+    }
+    await save();
+    render();
+  });
+  const saveCustomInterval = async () => {
+    config.intervalMin = Math.max(0.5, Number($("#intervalMin").value) || 5);
+    config.intervalMax = Math.max(config.intervalMin, Number($("#intervalMax").value) || 10);
+    await save();
+    render();
+  };
+  $("#intervalMin").addEventListener("change", saveCustomInterval);
+  $("#intervalMax").addEventListener("change", saveCustomInterval);
   $("#method").addEventListener("change", async (event) => { config.method = event.target.value; await save(); render(); });
   $("#endpoint").addEventListener("change", async (event) => { config.endpoint = event.target.value.trim(); await save(); });
   $("#test").addEventListener("click", async () => {

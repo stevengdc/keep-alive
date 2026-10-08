@@ -3,6 +3,9 @@ const LOG_LIMIT = 100;
 const DEFAULTS = {
   enabled: true,
   interval: 5,
+  intervalMode: "fixed",
+  intervalMin: 5,
+  intervalMax: 10,
   method: "fetch",
   endpoint: "",
   onlyWhenTabOpen: true,
@@ -49,6 +52,7 @@ async function recordResult(origin, site, data) {
     timestamp,
     source: data.source,
     method: site.method,
+    scheduledInterval: site.nextInterval ?? null,
     outcome: data.outcome,
     ok: data.ok,
     status: data.status ?? null,
@@ -66,6 +70,33 @@ function alarmName(origin) {
   return `${ALARM_PREFIX}${encodeURIComponent(origin)}`;
 }
 
+function getIntervalBounds(site) {
+  if (site.intervalMode === "random" || site.intervalMode === "custom") {
+    const first = Math.max(0.5, Number(site.intervalMin) || 5);
+    const second = Math.max(0.5, Number(site.intervalMax) || 10);
+    return [Math.min(first, second), Math.max(first, second)];
+  }
+  const fixed = Math.max(0.5, Number(site.interval) || 5);
+  return [fixed, fixed];
+}
+
+function chooseInterval(site) {
+  const [min, max] = getIntervalBounds(site);
+  return Math.round((min + Math.random() * (max - min)) * 100) / 100;
+}
+
+async function scheduleNext(origin) {
+  const sites = await storage.getSites();
+  const site = sites[origin];
+  if (!site?.enabled) return;
+  const interval = chooseInterval(site);
+  site.nextInterval = interval;
+  site.nextRun = Date.now() + interval * 60_000;
+  sites[origin] = site;
+  await storage.setSites(sites);
+  await chrome.alarms.create(alarmName(origin), { delayInMinutes: interval });
+}
+
 async function syncAlarms() {
   const sites = await storage.getSites();
   const alarms = await chrome.alarms.getAll();
@@ -75,16 +106,14 @@ async function syncAlarms() {
       .map(({ name }) => chrome.alarms.clear(name))
   );
 
-  await Promise.all(
-    Object.entries(sites)
-      .filter(([, site]) => site.enabled)
-      .map(([origin, site]) =>
-        chrome.alarms.create(alarmName(origin), {
-          delayInMinutes: Math.max(0.5, Number(site.interval) || 5),
-          periodInMinutes: Math.max(0.5, Number(site.interval) || 5)
-        })
-      )
-  );
+  for (const [origin, site] of Object.entries(sites)) {
+    if (!site.enabled) continue;
+    const interval = chooseInterval(site);
+    site.nextInterval = interval;
+    site.nextRun = Date.now() + interval * 60_000;
+    await chrome.alarms.create(alarmName(origin), { delayInMinutes: interval });
+  }
+  await storage.setSites(sites);
 }
 
 async function findMatchingTab(origin) {
@@ -290,13 +319,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const schedule = (sites = {}) => JSON.stringify(
     Object.fromEntries(Object.entries(sites).map(([origin, site]) => [origin, {
       enabled: site.enabled,
-      interval: site.interval
+      interval: site.interval,
+      intervalMode: site.intervalMode || "fixed",
+      intervalMin: site.intervalMin,
+      intervalMax: site.intervalMax
     }]))
   );
   if (schedule(changes.sites.oldValue) !== schedule(changes.sites.newValue)) syncAlarms();
 });
 chrome.alarms.onAlarm.addListener(({ name }) => {
-  if (name.startsWith(ALARM_PREFIX)) runKeepAlive(decodeURIComponent(name.slice(ALARM_PREFIX.length)));
+  if (!name.startsWith(ALARM_PREFIX)) return;
+  const origin = decodeURIComponent(name.slice(ALARM_PREFIX.length));
+  runKeepAlive(origin).finally(() => scheduleNext(origin));
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "sync") syncAlarms().then(() => sendResponse({ ok: true }));
