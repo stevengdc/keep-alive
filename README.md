@@ -12,7 +12,7 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 - Histórico das últimas 100 tentativas por site, com estado HTTP e diagnóstico.
 - Deteção de respostas `401`/`403`, redirecionamentos e páginas de login devolvidas com HTTP `200`.
 - Exportação do histórico em JSON.
-- Integração específica com o cliente GraphQL/Apollo do Global Trusted Sign, sem guardar tokens.
+- Integração específica com o cliente GraphQL/Apollo do Global Trusted Sign, incluindo renovação preventiva da sessão a cada 20 minutos.
 - Atalho contextual para as definições de desempenho do Chrome ou Edge e aviso sobre suspensão do computador.
 - Página de gestão de todos os sites.
 - Permissões de acesso pedidas apenas para os domínios ativados.
@@ -29,7 +29,7 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 
 O service worker agenda um alarme para cada site ativo. Quando chega a hora, a extensão procura um separador aberto desse domínio e executa nele o método escolhido. No modo normal, faz um pedido com os cookies da sessão. No modo de atividade, emite eventos não intrusivos sem mover o cursor real.
 
-> O Keep Alive não guarda credenciais, não lê o conteúdo das respostas e não envia dados para serviços externos. Um website pode aplicar políticas que impeçam este tipo de renovação; use a extensão apenas onde estiver autorizado.
+> O Keep Alive não guarda credenciais nem envia dados para serviços externos. Na integração Global Trusted Sign, os tokens são utilizados apenas na memória da própria página para renovar a sessão e nunca são devolvidos à extensão, registados ou persistidos. Um website pode aplicar políticas que impeçam este tipo de renovação; use a extensão apenas onde estiver autorizado.
 
 ## Desenvolvimento
 

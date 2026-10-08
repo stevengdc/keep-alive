@@ -206,15 +206,17 @@ async function runKeepAlive(origin, manual = false) {
             };
           }
 
-          const nameField = {
+          const makeName = (value) => ({ kind: "Name", value });
+          const makeField = (name) => ({
             kind: "Field",
-            name: { kind: "Name", value: "name" },
+            name: makeName(name),
             arguments: [],
             directives: []
-          };
+          });
+          const nameField = makeField("name");
           const userField = {
             kind: "Field",
-            name: { kind: "Name", value: "user" },
+            name: makeName("user"),
             arguments: [],
             directives: [],
             selectionSet: { kind: "SelectionSet", selections: [nameField] }
@@ -224,12 +226,112 @@ async function runKeepAlive(origin, manual = false) {
             definitions: [{
               kind: "OperationDefinition",
               operation: "query",
-              name: { kind: "Name", value: "checkAuthentication" },
+              name: makeName("checkAuthentication"),
               variableDefinitions: [],
               directives: [],
               selectionSet: { kind: "SelectionSet", selections: [userField] }
             }]
           };
+
+          const session = appContext.state.session?.params || appContext.state.session;
+          const sessionUser = session?.user;
+          const sessionStartedAt = Date.parse(session?.sessionCreatedDate || "");
+          const sessionAgeMinutes = Number.isFinite(sessionStartedAt)
+            ? (Date.now() - sessionStartedAt) / 60_000
+            : null;
+          const shouldRefresh = Boolean(
+            sessionUser?.refreshToken &&
+            (config.forceTokenRefresh || sessionAgeMinutes === null || sessionAgeMinutes >= 20)
+          );
+
+          if (shouldRefresh) {
+            if (typeof appContext.methods.login !== "function") {
+              return {
+                ok: false,
+                outcome: "app-client-unavailable",
+                requestedUrl: "https://api.globaltrustedsign.com/graphql",
+                finalUrl: location.href,
+                message: "O cliente da aplicação não expõe o método necessário para atualizar a sessão."
+              };
+            }
+
+            const refreshTokenField = {
+              kind: "Field",
+              name: makeName("refreshToken"),
+              arguments: [{
+                kind: "Argument",
+                name: makeName("refresh_token"),
+                value: { kind: "Variable", name: makeName("refresh_token") }
+              }],
+              directives: [],
+              selectionSet: {
+                kind: "SelectionSet",
+                selections: ["access_token", "refresh_token", "expires_in"].map(makeField)
+              }
+            };
+            const refreshTokenQuery = {
+              kind: "Document",
+              definitions: [{
+                kind: "OperationDefinition",
+                operation: "query",
+                name: makeName("refreshToken"),
+                variableDefinitions: [{
+                  kind: "VariableDefinition",
+                  variable: { kind: "Variable", name: makeName("refresh_token") },
+                  type: {
+                    kind: "NonNullType",
+                    type: { kind: "NamedType", name: makeName("String") }
+                  },
+                  directives: []
+                }],
+                directives: [],
+                selectionSet: { kind: "SelectionSet", selections: [refreshTokenField] }
+              }]
+            };
+
+            const refreshed = await appContext.api.client.query({
+              query: refreshTokenQuery,
+              variables: { refresh_token: sessionUser.refreshToken },
+              fetchPolicy: "no-cache",
+              errorPolicy: "all",
+              context: { noLoading: true }
+            });
+            const token = refreshed?.data?.refreshToken;
+            if (!token?.access_token || !token?.refresh_token || refreshed?.errors?.length) {
+              return {
+                ok: false,
+                outcome: "refresh-failed",
+                status: 401,
+                requestedUrl: "https://api.globaltrustedsign.com/graphql",
+                finalUrl: location.href,
+                redirected: false,
+                message: "A aplicação não conseguiu renovar preventivamente o token da sessão."
+              };
+            }
+
+            const expiresInMinutes = Math.max(1, Number(token.expires_in || 1200) / 60);
+            const renewedSession = {
+              ...session,
+              sessionCreatedDate: new Date().toISOString(),
+              user: {
+                ...sessionUser,
+                accessToken: token.access_token,
+                refreshToken: token.refresh_token,
+                refreshTokenExpiresIn: expiresInMinutes
+              }
+            };
+            await appContext.methods.login(expiresInMinutes, renewedSession);
+
+            return {
+              ok: true,
+              outcome: "token-refreshed",
+              status: 200,
+              requestedUrl: "https://api.globaltrustedsign.com/graphql",
+              finalUrl: location.href,
+              redirected: false,
+              message: "Token da sessão renovado preventivamente pelo cliente autenticado da aplicação."
+            };
+          }
 
           const response = await appContext.api.client.query({
             query: checkAuthenticationQuery,
@@ -290,7 +392,7 @@ async function runKeepAlive(origin, manual = false) {
               : `O servidor respondeu com HTTP ${response.status}.`)
         };
       },
-      args: [site]
+      args: [{ ...site, forceTokenRefresh: manual }]
     });
 
     return recordResult(origin, site, {
