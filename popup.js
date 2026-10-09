@@ -49,6 +49,8 @@ function render() {
     const labels = {
       "request-accepted": "pedido aceite pelo servidor",
       "session-verified": "sessão confirmada pela aplicação",
+      "token-refreshed": "token da sessão renovado",
+      "refresh-failed": "falha ao renovar o token",
       "activity-sent": "atividade emitida",
       "authentication-required": "sessão expirada",
       "http-error": "erro HTTP",

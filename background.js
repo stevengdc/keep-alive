@@ -85,6 +85,24 @@ function chooseInterval(site) {
   return Math.round((min + Math.random() * (max - min)) * 100) / 100;
 }
 
+async function applyGlobalTrustedSignSchedule() {
+  const origin = "https://support.globaltrustedsign.com";
+  const sites = await storage.getSites();
+  if (!sites[origin]) return;
+  if (
+    sites[origin].intervalMode === "random" &&
+    Number(sites[origin].intervalMin) === 4 &&
+    Number(sites[origin].intervalMax) === 7
+  ) return;
+  sites[origin] = {
+    ...sites[origin],
+    intervalMode: "random",
+    intervalMin: 4,
+    intervalMax: 7
+  };
+  await storage.setSites(sites);
+}
+
 async function scheduleNext(origin) {
   const sites = await storage.getSites();
   const site = sites[origin];
@@ -235,14 +253,10 @@ async function runKeepAlive(origin, manual = false) {
 
           const session = appContext.state.session?.params || appContext.state.session;
           const sessionUser = session?.user;
-          const sessionStartedAt = Date.parse(session?.sessionCreatedDate || "");
-          const sessionAgeMinutes = Number.isFinite(sessionStartedAt)
-            ? (Date.now() - sessionStartedAt) / 60_000
-            : null;
-          const shouldRefresh = Boolean(
-            sessionUser?.refreshToken &&
-            (config.forceTokenRefresh || sessionAgeMinutes === null || sessionAgeMinutes >= 20)
-          );
+          // Os tokens renovados por este serviço expiram em 600 segundos.
+          // Cada execução usa por isso o refresh token rotativo, garantindo
+          // uma margem segura com o intervalo específico de 4–7 minutos.
+          const shouldRefresh = Boolean(sessionUser?.refreshToken);
 
           if (shouldRefresh) {
             if (typeof appContext.methods.login !== "function") {
@@ -414,8 +428,14 @@ async function runKeepAlive(origin, manual = false) {
   }
 }
 
-chrome.runtime.onInstalled.addListener(syncAlarms);
-chrome.runtime.onStartup.addListener(syncAlarms);
+chrome.runtime.onInstalled.addListener(async () => {
+  await applyGlobalTrustedSignSchedule();
+  await syncAlarms();
+});
+chrome.runtime.onStartup.addListener(async () => {
+  await applyGlobalTrustedSignSchedule();
+  await syncAlarms();
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes.sites) return;
   const schedule = (sites = {}) => JSON.stringify(
