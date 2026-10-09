@@ -191,22 +191,6 @@ async function runKeepAlive(origin, manual = false) {
             };
           }
 
-          const signalFrontendActivity = () => {
-            const target = document.body || document.documentElement || document;
-            const coordinates = {
-              bubbles: true,
-              clientX: Math.max(1, Math.round(innerWidth / 2)),
-              clientY: Math.max(1, Math.round(innerHeight / 2))
-            };
-            if (typeof PointerEvent === "function") {
-              target.dispatchEvent(new PointerEvent("pointermove", coordinates));
-            }
-            target.dispatchEvent(new MouseEvent("mousemove", coordinates));
-            window.dispatchEvent(new Event("focus"));
-            document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
-          };
-          signalFrontendActivity();
-
           const rootElement = document.querySelector("#root") || document.documentElement;
           const reactKey = Object.keys(rootElement).find((key) =>
             key.startsWith("__reactContainer$") || key.startsWith("__reactFiber$")
@@ -223,7 +207,8 @@ async function runKeepAlive(origin, manual = false) {
             const candidates = [fiber.memoizedProps?.value, fiber.pendingProps?.value];
             appContext = candidates.find((value) =>
               value?.api?.client && typeof value.api.client.query === "function" &&
-              value?.state?.session && typeof value?.methods?.isLoggedIn === "function"
+              value?.state?.session && typeof value?.methods?.isLoggedIn === "function" &&
+              typeof value?.methods?.changeSession === "function"
             ) || null;
             if (appContext) break;
             if (fiber.child) stack.push(fiber.child);
@@ -275,13 +260,13 @@ async function runKeepAlive(origin, manual = false) {
           const shouldRefresh = Boolean(sessionUser?.refreshToken);
 
           if (shouldRefresh) {
-            if (typeof appContext.methods.login !== "function") {
+            if (typeof appContext.methods.changeSession !== "function") {
               return {
                 ok: false,
                 outcome: "app-client-unavailable",
                 requestedUrl: "https://api.globaltrustedsign.com/graphql",
                 finalUrl: location.href,
-                message: "O cliente da aplicação não expõe o método necessário para atualizar a sessão."
+                message: "O cliente da aplicação não expõe o método changeSession necessário para atualizar a sessão."
               };
             }
 
@@ -339,19 +324,15 @@ async function runKeepAlive(origin, manual = false) {
               };
             }
 
-            const expiresInMinutes = Math.max(1, Number(token.expires_in || 1200) / 60);
-            const renewedSession = {
-              ...session,
+            const expiresInMinutes = Math.max(1, Number(token.expires_in || 600) / 60);
+            appContext.methods.changeSession({
               sessionCreatedDate: new Date().toISOString(),
               user: {
-                ...sessionUser,
                 accessToken: token.access_token,
                 refreshToken: token.refresh_token,
                 refreshTokenExpiresIn: expiresInMinutes
               }
-            };
-            await appContext.methods.login(expiresInMinutes, renewedSession);
-            signalFrontendActivity();
+            });
 
             return {
               ok: true,
@@ -360,7 +341,7 @@ async function runKeepAlive(origin, manual = false) {
               requestedUrl: "https://api.globaltrustedsign.com/graphql",
               finalUrl: location.href,
               redirected: false,
-              message: "Atividade do frontend sinalizada e token da sessão renovado preventivamente."
+              message: "Token e relógio interno da sessão renovados através do método nativo da aplicação."
             };
           }
 
