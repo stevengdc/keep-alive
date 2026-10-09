@@ -191,6 +191,22 @@ async function runKeepAlive(origin, manual = false) {
             };
           }
 
+          const signalFrontendActivity = () => {
+            const target = document.body || document.documentElement || document;
+            const coordinates = {
+              bubbles: true,
+              clientX: Math.max(1, Math.round(innerWidth / 2)),
+              clientY: Math.max(1, Math.round(innerHeight / 2))
+            };
+            if (typeof PointerEvent === "function") {
+              target.dispatchEvent(new PointerEvent("pointermove", coordinates));
+            }
+            target.dispatchEvent(new MouseEvent("mousemove", coordinates));
+            window.dispatchEvent(new Event("focus"));
+            document.dispatchEvent(new Event("visibilitychange", { bubbles: true }));
+          };
+          signalFrontendActivity();
+
           const rootElement = document.querySelector("#root") || document.documentElement;
           const reactKey = Object.keys(rootElement).find((key) =>
             key.startsWith("__reactContainer$") || key.startsWith("__reactFiber$")
@@ -335,6 +351,7 @@ async function runKeepAlive(origin, manual = false) {
               }
             };
             await appContext.methods.login(expiresInMinutes, renewedSession);
+            signalFrontendActivity();
 
             return {
               ok: true,
@@ -343,7 +360,7 @@ async function runKeepAlive(origin, manual = false) {
               requestedUrl: "https://api.globaltrustedsign.com/graphql",
               finalUrl: location.href,
               redirected: false,
-              message: "Token da sessão renovado preventivamente pelo cliente autenticado da aplicação."
+              message: "Atividade do frontend sinalizada e token da sessão renovado preventivamente."
             };
           }
 
