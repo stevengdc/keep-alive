@@ -1,3 +1,5 @@
+importScripts("profiles.js");
+
 const ALARM_PREFIX = "keep-alive:";
 const LOG_LIMIT = 100;
 const DEFAULTS = {
@@ -85,22 +87,27 @@ function chooseInterval(site) {
   return Math.round((min + Math.random() * (max - min)) * 100) / 100;
 }
 
-async function applyGlobalTrustedSignSchedule() {
-  const origin = "https://support.globaltrustedsign.com";
+async function applyProfileSchedules() {
   const sites = await storage.getSites();
-  if (!sites[origin]) return;
-  if (
-    sites[origin].intervalMode === "random" &&
-    Number(sites[origin].intervalMin) === 4 &&
-    Number(sites[origin].intervalMax) === 7
-  ) return;
-  sites[origin] = {
-    ...sites[origin],
-    intervalMode: "random",
-    intervalMin: 4,
-    intervalMax: 7
-  };
-  await storage.setSites(sites);
+  const { customProfiles = [] } = await chrome.storage.local.get("customProfiles");
+  let changed = false;
+  for (const [origin, site] of Object.entries(sites)) {
+    const profile = KeepAliveProfiles.find(origin, customProfiles);
+    if (!profile) continue;
+    const next = {
+      ...site,
+      intervalMode: profile.interval.mode === "fixed" ? "fixed" : "random",
+      interval: profile.interval.minMinutes,
+      intervalMin: profile.interval.minMinutes,
+      intervalMax: profile.interval.maxMinutes,
+      profileId: profile.id
+    };
+    if (JSON.stringify(next) !== JSON.stringify(site)) {
+      sites[origin] = next;
+      changed = true;
+    }
+  }
+  if (changed) await storage.setSites(sites);
 }
 
 async function scheduleNext(origin) {
@@ -155,6 +162,8 @@ async function runKeepAlive(origin, manual = false) {
   }
 
   try {
+    const { customProfiles = [] } = await chrome.storage.local.get("customProfiles");
+    const profile = KeepAliveProfiles.find(origin, customProfiles);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -179,7 +188,8 @@ async function runKeepAlive(origin, manual = false) {
         // Apollo. Um fetch ao HTML não passa por esse cliente e não conta como
         // atividade. Localizamos o contexto React já autenticado e fazemos a
         // query oficial de verificação sem ler, copiar ou guardar tokens.
-        if (location.hostname === "support.globaltrustedsign.com") {
+        if (config.profile?.strategy?.type === "apollo-refresh") {
+          const strategy = config.profile.strategy;
           if (/^\/login(?:\/|$)/i.test(location.pathname)) {
             return {
               ok: false,
@@ -208,7 +218,7 @@ async function runKeepAlive(origin, manual = false) {
             appContext = candidates.find((value) =>
               value?.api?.client && typeof value.api.client.query === "function" &&
               value?.state?.session && typeof value?.methods?.isLoggedIn === "function" &&
-              typeof value?.methods?.changeSession === "function"
+              typeof value?.methods?.[strategy.updateMethod] === "function"
             ) || null;
             if (appContext) break;
             if (fiber.child) stack.push(fiber.child);
@@ -260,28 +270,32 @@ async function runKeepAlive(origin, manual = false) {
           const shouldRefresh = Boolean(sessionUser?.refreshToken);
 
           if (shouldRefresh) {
-            if (typeof appContext.methods.changeSession !== "function") {
+            if (typeof appContext.methods[strategy.updateMethod] !== "function") {
               return {
                 ok: false,
                 outcome: "app-client-unavailable",
-                requestedUrl: "https://api.globaltrustedsign.com/graphql",
+                requestedUrl: strategy.endpoint,
                 finalUrl: location.href,
-                message: "O cliente da aplicação não expõe o método changeSession necessário para atualizar a sessão."
+                message: `O cliente da aplicação não expõe o método ${strategy.updateMethod} necessário para atualizar a sessão.`
               };
             }
 
             const refreshTokenField = {
               kind: "Field",
-              name: makeName("refreshToken"),
+              name: makeName(strategy.field),
               arguments: [{
                 kind: "Argument",
-                name: makeName("refresh_token"),
-                value: { kind: "Variable", name: makeName("refresh_token") }
+                name: makeName(strategy.variable),
+                value: { kind: "Variable", name: makeName(strategy.variable) }
               }],
               directives: [],
               selectionSet: {
                 kind: "SelectionSet",
-                selections: ["access_token", "refresh_token", "expires_in"].map(makeField)
+                selections: [
+                  strategy.tokenFields.access,
+                  strategy.tokenFields.refresh,
+                  strategy.tokenFields.expiresIn
+                ].map(makeField)
               }
             };
             const refreshTokenQuery = {
@@ -289,10 +303,10 @@ async function runKeepAlive(origin, manual = false) {
               definitions: [{
                 kind: "OperationDefinition",
                 operation: "query",
-                name: makeName("refreshToken"),
+                name: makeName(strategy.operation),
                 variableDefinitions: [{
                   kind: "VariableDefinition",
-                  variable: { kind: "Variable", name: makeName("refresh_token") },
+                  variable: { kind: "Variable", name: makeName(strategy.variable) },
                   type: {
                     kind: "NonNullType",
                     type: { kind: "NamedType", name: makeName("String") }
@@ -306,30 +320,32 @@ async function runKeepAlive(origin, manual = false) {
 
             const refreshed = await appContext.api.client.query({
               query: refreshTokenQuery,
-              variables: { refresh_token: sessionUser.refreshToken },
+              variables: { [strategy.variable]: sessionUser.refreshToken },
               fetchPolicy: "no-cache",
               errorPolicy: "all",
               context: { noLoading: true }
             });
-            const token = refreshed?.data?.refreshToken;
-            if (!token?.access_token || !token?.refresh_token || refreshed?.errors?.length) {
+            const token = refreshed?.data?.[strategy.field];
+            const accessToken = token?.[strategy.tokenFields.access];
+            const refreshToken = token?.[strategy.tokenFields.refresh];
+            if (!accessToken || !refreshToken || refreshed?.errors?.length) {
               return {
                 ok: false,
                 outcome: "refresh-failed",
                 status: 401,
-                requestedUrl: "https://api.globaltrustedsign.com/graphql",
+                requestedUrl: strategy.endpoint,
                 finalUrl: location.href,
                 redirected: false,
                 message: "A aplicação não conseguiu renovar preventivamente o token da sessão."
               };
             }
 
-            const expiresInMinutes = Math.max(1, Number(token.expires_in || 600) / 60);
-            appContext.methods.changeSession({
+            const expiresInMinutes = Math.max(1, Number(token?.[strategy.tokenFields.expiresIn] || 600) / 60);
+            appContext.methods[strategy.updateMethod]({
               sessionCreatedDate: new Date().toISOString(),
               user: {
-                accessToken: token.access_token,
-                refreshToken: token.refresh_token,
+                accessToken,
+                refreshToken,
                 refreshTokenExpiresIn: expiresInMinutes
               }
             });
@@ -338,7 +354,7 @@ async function runKeepAlive(origin, manual = false) {
               ok: true,
               outcome: "token-refreshed",
               status: 200,
-              requestedUrl: "https://api.globaltrustedsign.com/graphql",
+              requestedUrl: strategy.endpoint,
               finalUrl: location.href,
               redirected: false,
               message: "Token e relógio interno da sessão renovados através do método nativo da aplicação."
@@ -355,7 +371,7 @@ async function runKeepAlive(origin, manual = false) {
             ok: verified,
             outcome: verified ? "session-verified" : "authentication-required",
             status: verified ? 200 : 401,
-            requestedUrl: "https://api.globaltrustedsign.com/graphql",
+            requestedUrl: strategy.endpoint,
             finalUrl: location.href,
             redirected: false,
             message: verified
@@ -404,7 +420,7 @@ async function runKeepAlive(origin, manual = false) {
               : `O servidor respondeu com HTTP ${response.status}.`)
         };
       },
-      args: [{ ...site, forceTokenRefresh: manual }]
+      args: [{ ...site, profile, forceTokenRefresh: manual }]
     });
 
     return recordResult(origin, site, {
@@ -427,15 +443,20 @@ async function runKeepAlive(origin, manual = false) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await applyGlobalTrustedSignSchedule();
+  await applyProfileSchedules();
   await syncAlarms();
 });
 chrome.runtime.onStartup.addListener(async () => {
-  await applyGlobalTrustedSignSchedule();
+  await applyProfileSchedules();
   await syncAlarms();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes.sites) return;
+  if (area !== "local") return;
+  if (changes.customProfiles) {
+    applyProfileSchedules().then(syncAlarms);
+    return;
+  }
+  if (!changes.sites) return;
   const schedule = (sites = {}) => JSON.stringify(
     Object.fromEntries(Object.entries(sites).map(([origin, site]) => [origin, {
       enabled: site.enabled,
@@ -455,6 +476,70 @@ chrome.alarms.onAlarm.addListener(({ name }) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "sync") syncAlarms().then(() => sendResponse({ ok: true }));
   else if (message.type === "run") runKeepAlive(message.origin, true).then(sendResponse);
+  else if (message.type === "detect-profile") detectProfile(message.origin).then(sendResponse);
   else return false;
   return true;
 });
+
+async function detectProfile(origin) {
+  const tab = await findMatchingTab(origin);
+  if (!tab?.id) return { ok: false, error: "Abra um separador deste site antes de o analisar." };
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: "MAIN",
+    func: () => {
+      const root = document.querySelector("#root") || document.documentElement;
+      const reactKey = Object.keys(root).find((key) => key.startsWith("__reactContainer$") || key.startsWith("__reactFiber$"));
+      const stack = reactKey ? [root[reactKey]] : [];
+      const visited = new Set();
+      while (stack.length && visited.size < 25000) {
+        const fiber = stack.pop();
+        if (!fiber || visited.has(fiber)) continue;
+        visited.add(fiber);
+        for (const value of [fiber.memoizedProps?.value, fiber.pendingProps?.value]) {
+          if (value?.api?.client && value?.state?.session && value?.methods) {
+            return {
+              framework: "react",
+              apollo: typeof value.api.client.query === "function",
+              authenticated: typeof value.methods.isLoggedIn === "function" && Boolean(value.methods.isLoggedIn()),
+              changeSession: typeof value.methods.changeSession === "function",
+              hasRefreshToken: Boolean(value.state.session?.params?.user?.refreshToken)
+            };
+          }
+        }
+        if (fiber.child) stack.push(fiber.child);
+        if (fiber.sibling) stack.push(fiber.sibling);
+      }
+      return { framework: reactKey ? "react" : "unknown", apollo: false };
+    }
+  });
+  const hostname = new URL(origin).hostname;
+  const id = hostname.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase().slice(0, 64);
+  if (result?.apollo && result?.changeSession && result?.hasRefreshToken) {
+    return {
+      ok: true,
+      confidence: "medium",
+      message: "Cliente Apollo autenticado e método changeSession encontrados. Confirme os nomes da operação antes de importar.",
+      profile: {
+        schemaVersion: 1, id, version: 1, name: hostname, matches: [`${origin}/*`],
+        interval: { mode: "random", minMinutes: 4, maxMinutes: 7 },
+        strategy: {
+          type: "apollo-refresh", endpoint: `${origin}/graphql`, operation: "refreshToken", field: "refreshToken",
+          variable: "refresh_token", updateMethod: "changeSession",
+          tokenFields: { access: "access_token", refresh: "refresh_token", expiresIn: "expires_in" }
+        },
+        detection: { requires: ["api.client.query", "methods.isLoggedIn", "methods.changeSession"] }
+      }
+    };
+  }
+  return {
+    ok: true,
+    confidence: "low",
+    message: "Não foi encontrado um mecanismo nativo reconhecido; recomenda-se o pedido autenticado genérico.",
+    profile: {
+      schemaVersion: 1, id, version: 1, name: hostname, matches: [`${origin}/*`],
+      interval: { mode: "random", minMinutes: 5, maxMinutes: 10 },
+      strategy: { type: "authenticated-fetch" }
+    }
+  };
+}

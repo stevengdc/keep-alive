@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 let origin;
 let config;
+let activeProfile;
 
 const defaults = {
   enabled: false,
@@ -91,8 +92,10 @@ async function init() {
   origin = url.origin;
   $("#host").textContent = url.hostname;
   $("#app").hidden = false;
-  const { sites = {} } = await chrome.storage.local.get("sites");
+  const { sites = {}, customProfiles = [] } = await chrome.storage.local.get(["sites", "customProfiles"]);
   config = { ...defaults, ...sites[origin] };
+  activeProfile = KeepAliveProfiles.find(origin, customProfiles);
+  $("#profileStatus").textContent = activeProfile ? `Perfil: ${activeProfile.name}` : "Sem perfil específico";
   const isEdge = /Edg\//.test(navigator.userAgent);
   $("#browserName").textContent = isEdge ? "Edge" : "Chrome";
   $("#performanceSettings").addEventListener("click", () => {
@@ -137,6 +140,34 @@ async function init() {
       ? (result.message || "Pedido aceite pelo servidor; renovação não confirmada.")
       : (result.message || `Não foi possível enviar: ${result.status || "erro"}`);
     button.disabled = false;
+  });
+  $("#analyzeProfile").addEventListener("click", async () => {
+    const button = $("#analyzeProfile");
+    button.disabled = true;
+    button.textContent = "A analisar…";
+    try {
+      const result = await chrome.runtime.sendMessage({ type: "detect-profile", origin });
+      if (!result?.ok) throw new Error(result?.error || "Não foi possível analisar o site.");
+      const validation = KeepAliveProfiles.validate(result.profile);
+      if (!validation.ok) throw new Error(validation.errors.join("\n"));
+      if (!confirm(`${result.message}\n\nGuardar este perfil com confiança ${result.confidence}?`)) return;
+      const stored = await chrome.storage.local.get("customProfiles");
+      const profiles = stored.customProfiles || [];
+      const index = profiles.findIndex((profile) => profile.id === result.profile.id);
+      if (index >= 0) profiles[index] = result.profile;
+      else profiles.push(result.profile);
+      await chrome.storage.local.set({ customProfiles: profiles });
+      activeProfile = result.profile;
+      $("#profileStatus").textContent = `Perfil: ${activeProfile.name}`;
+      $("#status").className = "status ok";
+      $("#status").textContent = "Perfil detetado e guardado. Reveja-o antes de confiar numa operação nativa.";
+    } catch (error) {
+      $("#status").className = "status error";
+      $("#status").textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Analisar site";
+    }
   });
   $("#options").addEventListener("click", () => chrome.runtime.openOptionsPage());
 }

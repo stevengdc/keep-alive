@@ -13,6 +13,8 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 - Deteção de respostas `401`/`403`, redirecionamentos e páginas de login devolvidas com HTTP `200`.
 - Exportação do histórico em JSON.
 - Integração específica com o cliente GraphQL/Apollo do Global Trusted Sign, renovando o token rotativo e o relógio interno da sessão através do método nativo `changeSession`, num intervalo aleatório seguro de 4–7 minutos.
+- Perfis de site declarativos, versionados, importáveis e exportáveis, sem execução de JavaScript recebido.
+- Analisador local para sugerir perfis e guia para criação assistida por IA em [`PROFILE_AUTHORING.md`](PROFILE_AUTHORING.md).
 - Atalho contextual para as definições de desempenho do Chrome ou Edge e aviso sobre suspensão do computador.
 - Página de gestão de todos os sites.
 - Permissões de acesso pedidas apenas para os domínios ativados.
@@ -28,6 +30,20 @@ Extensão para Chromium que evita que sessões web expirem por inatividade. Cada
 ## Como funciona
 
 O service worker agenda um alarme para cada site ativo. Quando chega a hora, a extensão procura um separador aberto desse domínio e executa nele o método escolhido. No modo normal, faz um pedido com os cookies da sessão. No modo de atividade, emite eventos não intrusivos sem mover o cursor real.
+
+### Perfis de site
+
+Os mecanismos específicos deixaram de estar presos ao código principal. A extensão inclui um motor de perfis declarativos e um perfil integrado para o Global Trusted Sign. Em **Gerir todos os sites** pode:
+
+- importar um perfil `.json` ou `.keepalive.json`;
+- exportar todos os perfis;
+- exportar o perfil correspondente a um site configurado;
+- remover perfis personalizados;
+- consultar se um perfil é integrado ou importado.
+
+No popup, **Analisar site** procura localmente clientes React/Apollo e métodos de sessão reconhecidos. Uma sugestão só é guardada depois da confirmação do utilizador. Consulte [`PROFILE_AUTHORING.md`](PROFILE_AUTHORING.md) para criar perfis manualmente ou com ajuda de uma IA.
+
+Perfis importados nunca contêm JavaScript executável. Apenas estratégias e campos pertencentes a uma lista fechada são aceites.
 
 > O Keep Alive não guarda credenciais nem envia dados para serviços externos. Na integração Global Trusted Sign, os tokens são utilizados apenas na memória da própria página para renovar a sessão e nunca são devolvidos à extensão, registados ou persistidos. Um website pode aplicar políticas que impeçam este tipo de renovação; use a extensão apenas onde estiver autorizado.
 

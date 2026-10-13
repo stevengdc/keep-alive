@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Keep Alive",
-  "version": "1.5.0",
-  "description": "Mantém sessões web ativas com pedidos periódicos configuráveis por site.",
+  "version": "2.0.0",
+  "description": "Mantém sessões web ativas com pedidos periódicos e perfis declarativos configuráveis por site.",
   "permissions": ["alarms", "storage", "tabs", "scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
